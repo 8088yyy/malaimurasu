@@ -2,37 +2,42 @@ name: Malaimurasu Epaper Downloader
 
 on:
   schedule:
-    - cron: '0 0 * * *'    # Runs every day at 00:00 UTC
-  workflow_dispatch:        # Allow manual trigger
+    - cron: '0 0 * * *'  # Every day at midnight UTC
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-    - name: Set up Python 3.x
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.x"
+      - name: Check connectivity to epaper.malaimurasu.com
+        run: |
+          curl --fail --max-time 10 https://epaper.malaimurasu.com/ || exit 1
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests beautifulsoup4 PyPDF2
+      - name: Set up Python 3.x
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
 
-    - name: Run downloader script
-      run: python download_malaimurasu.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 PyPDF2
 
-    - name: Commit and push if PDF exists
-      run: |
-        if ls downloads/*.pdf 1> /dev/null 2>&1; then
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add downloads/*.pdf
-          git commit -m "📄 Update Malaimurasu PDF [$(date '+%Y-%m-%d')]"
-          git push
-        else
-          echo "❌ No PDF to commit."
+      - name: Run downloader script
+        run: python download_malaimurasu.py
+
+      - name: Commit and push if PDF exists
+        run: |
+          if ls downloads/*.pdf 1> /dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add downloads/*.pdf
+            git commit -m "📄 Update Malaimurasu PDF [$(date '+%Y-%m-%d')]"
+            git push
+          else
+            echo "❌ No PDF to commit."
+          fi
