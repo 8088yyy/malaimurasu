@@ -2,7 +2,7 @@ name: Malaimurasu E-paper Downloader
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # every day at midnight UTC
+    - cron: '0 0 * * *'  # daily at midnight UTC
   workflow_dispatch:
 
 jobs:
@@ -10,17 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
-
-      - name: Check connectivity to Malaimurasu e-paper
-        run: |
-          curl --fail --max-time 10 https://epaper.malaimurasu.com/ || exit 1
 
       - name: Setup Python 3.x
         uses: actions/setup-python@v4
         with:
-          python-version: "3.x"
+          python-version: '3.x'
 
       - name: Install dependencies
         run: |
@@ -30,13 +26,15 @@ jobs:
       - name: Run download script
         run: python download_malaimurasu.py
 
-      - name: Commit and push PDF if downloaded
+      - name: Commit and push PDFs if available
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if ls downloads/*.pdf 1> /dev/null 2>&1; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add downloads/*.pdf
-            git commit -m "📄 Update Malaimurasu PDF [$(date '+%Y-%m-%d')]"
+            git diff --cached --quiet || (git commit -m "📄 Update Malaimurasu PDF [$(date '+%Y-%m-%d')]")
             git push
           else
             echo "❌ No PDF to commit."
