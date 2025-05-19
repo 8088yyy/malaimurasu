@@ -1,23 +1,23 @@
-name: Malaimurasu Epaper Downloader
+name: Malaimurasu E-paper Downloader
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Every day at midnight UTC
+    - cron: '0 0 * * *'  # every day at midnight UTC
   workflow_dispatch:
 
 jobs:
-  build:
+  download:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Check connectivity to epaper.malaimurasu.com
+      - name: Check connectivity to Malaimurasu e-paper
         run: |
           curl --fail --max-time 10 https://epaper.malaimurasu.com/ || exit 1
 
-      - name: Set up Python 3.x
+      - name: Setup Python 3.x
         uses: actions/setup-python@v4
         with:
           python-version: "3.x"
@@ -27,10 +27,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 PyPDF2
 
-      - name: Run downloader script
+      - name: Run download script
         run: python download_malaimurasu.py
 
-      - name: Commit and push if PDF exists
+      - name: Commit and push PDF if downloaded
         run: |
           if ls downloads/*.pdf 1> /dev/null 2>&1; then
             git config user.name "github-actions[bot]"
