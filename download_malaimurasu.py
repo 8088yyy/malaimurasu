@@ -1,66 +1,65 @@
-import requests
-from bs4 import BeautifulSoup
-import re
 import os
+import io
+import re
+import requests
 from datetime import datetime
 from PyPDF2 import PdfMerger
-import io
+from bs4 import BeautifulSoup
 
 def download_and_merge_malaimurasu_epaper(date=None):
-    """
-    Downloads and merges Malaimurasu e-paper pages for the given date into a single PDF.
-    """
     if date is None:
         date = datetime.now().strftime('%Y/%m/%d')
 
     year, month, day = date.split('/')
     base_url = "https://epaper.malaimurasu.com"
 
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
+    out_dir = 'downloads'
+    os.makedirs(out_dir, exist_ok=True)
 
-    # Construct main page URL
-    main_page_url = f"{base_url}/{year}/{month}/{day}/Chennai/index.shtml"
+    # Setup session with retry
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'Mozilla/5.0'})
+    adapter = requests.adapters.HTTPAdapter(max_retries=2)
+    session.mount("https://", adapter)
 
     try:
-        response = requests.get(main_page_url)
+        index_url = f"{base_url}/{date}/Chennai/index.shtml"
+        response = session.get(index_url, timeout=10)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Find total number of pages from JS variables or links
-        script_tags = soup.find_all('script', text=re.compile(r'var totalPages'))
-        total_pages = 10  # Fallback default
-        for script in script_tags:
-            match = re.search(r'var\s+totalPages\s*=\s*(\d+)', script.text)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        scripts = soup.find_all("script")
+        page_count = 8  # Fallback default
+
+        for script in scripts:
+            match = re.search(r'var totalPages\s*=\s*(\d+);', script.text)
             if match:
-                total_pages = int(match.group(1))
+                page_count = int(match.group(1))
                 break
 
-        print(f"Found {total_pages} pages to download.")
         merger = PdfMerger()
-
-        for page_num in range(1, total_pages + 1):
-            pdf_url = f"{base_url}/{year}/{month}/{day}/Chennai/CHE_P{page_num:02d}.pdf"
+        for page in range(1, page_count + 1):
+            pdf_name = f"CHE_P{page:02d}.pdf"
+            pdf_url = f"{base_url}/{date}/Chennai/{pdf_name}"
             print(f"Trying {pdf_url}")
             try:
-                resp = requests.get(pdf_url)
-                resp.raise_for_status()
-                merger.append(io.BytesIO(resp.content))
-                print(f"Downloaded page {page_num}")
-            except Exception as e:
-                print(f"Failed page {page_num}: {e}")
-                continue
+                res = session.get(pdf_url, timeout=10)
+                res.raise_for_status()
+                merger.append(io.BytesIO(res.content))
+                print(f"Page {page} added.")
+            except:
+                print(f"Failed: {pdf_url}")
 
-        output_filename = f"downloads/malaimurasu_{year}_{month}_{day}.pdf"
-        merger.write(output_filename)
+        output_file = os.path.join(out_dir, f"malaimurasu_{year}_{month}_{day}.pdf")
+        merger.write(output_file)
         merger.close()
-        print(f"PDF saved as {output_filename}")
-        return output_filename
+
+        print(f"Saved: {output_file}")
+        return output_file
 
     except Exception as e:
         print(f"Error: {e}")
         return None
-
 
 if __name__ == "__main__":
     download_and_merge_malaimurasu_epaper()
