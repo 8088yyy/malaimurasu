@@ -1,25 +1,26 @@
-name: Malaimurasu E-paper Downloader
+name: Malaimurasu Epaper Downloader
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # Runs daily at 2 AM UTC
-  workflow_dispatch:
+    - cron: '0 0 * * *'    # Runs every day at 00:00 UTC
+  workflow_dispatch:        # Allow manual trigger
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout repo
       uses: actions/checkout@v3
 
-    - name: Set up Python
+    - name: Set up Python 3.x
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: "3.x"
 
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip
         pip install requests beautifulsoup4 PyPDF2
 
     - name: Run downloader script
@@ -31,6 +32,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add downloads/*.pdf
-          git commit -m "Update Malaimurasu PDF [$(date '+%Y-%m-%d')]"
+          git commit -m "📄 Update Malaimurasu PDF [$(date '+%Y-%m-%d')]"
           git push
-        fi
+        else
+          echo "❌ No PDF to commit."
