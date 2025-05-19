@@ -1,36 +1,36 @@
-name: Download Malaimurasu Daily
+name: Malaimurasu E-paper Downloader
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Every day at midnight UTC
+    - cron: '0 2 * * *'  # Runs daily at 2 AM UTC
   workflow_dispatch:
 
 jobs:
-  download-and-commit:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install requests beautifulsoup4 PyPDF2
+    - name: Install dependencies
+      run: |
+        pip install requests beautifulsoup4 PyPDF2
 
-      - name: Run script
-        run: python download_malaimurasu.py
+    - name: Run downloader script
+      run: python download_malaimurasu.py
 
-      - name: Commit and push if updated
-        run: |
-          if ls downloads/*.pdf 1> /dev/null 2>&1; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add downloads/*.pdf
-            git commit -m "Daily update: $(date +'%Y-%m-%d')" || echo "Nothing to commit"
-            git push
-          else
-            echo "No PDFs found to commit."
+    - name: Commit and push if PDF exists
+      run: |
+        if ls downloads/*.pdf 1> /dev/null 2>&1; then
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add downloads/*.pdf
+          git commit -m "Update Malaimurasu PDF [$(date '+%Y-%m-%d')]"
+          git push
+        fi
