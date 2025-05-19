@@ -1,75 +1,85 @@
 import requests
 from bs4 import BeautifulSoup
-from PyPDF2 import PdfMerger
-import os
-import io
 from datetime import datetime
-import re
-import time
+from PyPDF2 import PdfMerger
+import io
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def get_url_with_retry(url, retries=3, timeout=5):
-    for i in range(retries):
+def fetch_total_pages(main_page_url):
+    try:
+        response = requests.get(main_page_url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        page_select = soup.find('select', {'id': 'idGotoPageList'})
+        if not page_select:
+            print("Could not find the page selection dropdown. Falling back to 30 pages.")
+            return 30  # fallback page count guess
+        pages = page_select.find_all('option')
+        print(f"Found total pages: {len(pages)}")
+        return len(pages)
+    except Exception as e:
+        print(f"Error fetching total pages: {e}")
+        return 30  # fallback page count guess
+
+def download_pdf(page_num, base_url, date):
+    year, month, day = date.split('/')
+    urls = [
+        f"{base_url}/{date}/Chennai/CHE_P{page_num:02d}.pdf",
+        f"{base_url}/{date}/Chennai/CHE_P{page_num}.pdf"
+    ]
+    for url in urls:
         try:
-            r = requests.get(url, timeout=timeout)
-            r.raise_for_status()
-            return r
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            print(f"Downloaded page {page_num} from {url}")
+            return page_num, io.BytesIO(response.content)
         except Exception as e:
-            print(f"Attempt {i+1} failed for {url}: {e}")
-            if i < retries - 1:
-                time.sleep(2)
-    return None
+            # print(f"Failed to download page {page_num} from {url}: {e}")
+            continue
+    print(f"Failed to download page {page_num}")
+    return page_num, None
 
-def download_malaimurasu_latest():
-    homepage = "https://epaper.malaimurasu.com/"
-    r = get_url_with_retry(homepage)
-    if not r:
-        print(f"❌ Failed to access homepage after retries.")
+def download_and_merge_malaimurasu_epaper(date=None):
+    if date is None:
+        date = datetime.now().strftime('%Y/%m/%d')
+    year, month, day = date.split('/')
+
+    base_url = "https://epaper.malaimurasu.com"
+    os.makedirs('downloads', exist_ok=True)
+
+    main_page_url = f"{base_url}/{date}/Chennai/"
+    total_pages = fetch_total_pages(main_page_url)
+    print(f"Attempting to download {total_pages} pages for date {date}")
+
+    pdf_contents = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(download_pdf, i, base_url, date) for i in range(1, total_pages + 1)]
+        for future in as_completed(futures):
+            page_num, pdf = future.result()
+            if pdf:
+                pdf_contents[page_num] = pdf
+
+    if not pdf_contents:
+        print("No pages were downloaded successfully.")
         return None
 
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    # Find all links matching date pattern YYYY/MM/DD
-    links = soup.find_all("a", href=True)
-    date_links = []
-    for a in links:
-        href = a['href']
-        if re.match(r'^/\d{4}/\d{2}/\d{2}/$', href):
-            date_links.append(href.strip('/'))
-
-    if not date_links:
-        print("❌ No date folders found on homepage.")
-        return None
-
-    latest_date = sorted(date_links)[-1]  # e.g. '2025/05/19'
-    print(f"✅ Latest date found: {latest_date}")
-
-    base_url = f"https://epaper.malaimurasu.com/{latest_date}/Chennai"
-    year, month, day = latest_date.split('/')
-    output_file = f"downloads/malaimurasu_{year}_{month}_{day}.pdf"
-
-    os.makedirs("downloads", exist_ok=True)
+    # Merge PDFs in order
     merger = PdfMerger()
-    pages_downloaded = 0
-    max_pages = 30
+    for i in range(1, total_pages + 1):
+        if i in pdf_contents:
+            merger.append(pdf_contents[i])
 
-    for i in range(1, max_pages + 1):
-        pdf_name = f"CHE_P{i:02d}.pdf"
-        pdf_url = f"{base_url}/{pdf_name}"
-        res = get_url_with_retry(pdf_url)
-        if not res:
-            break
-        merger.append(io.BytesIO(res.content))
-        print(f"✅ Downloaded page {i}")
-        pages_downloaded += 1
-
-    if pages_downloaded > 0:
-        merger.write(output_file)
-        merger.close()
-        print(f"✅ Saved merged PDF: {output_file}")
-        return output_file
-    else:
-        print("❌ No pages downloaded.")
-        return None
+    output_filename = f"downloads/malaimurasu_{year}_{month}_{day}.pdf"
+    merger.write(output_filename)
+    merger.close()
+    print(f"PDF saved as: {output_filename}")
+    return output_filename
 
 if __name__ == "__main__":
-    download_malaimurasu_latest()
+    # You can change this date as needed or keep None for today
+    result = download_and_merge_malaimurasu_epaper("2025/05/18")
+    if result:
+        print(f"✅ PDF saved as: {result}")
+    else:
+        print("❌ Failed to download and merge PDFs.")
