@@ -2,17 +2,20 @@
 """
 Makkal Kural E-Paper Downloader
 Downloads all pages of the daily e-paper and combines them into a single PDF
+Enhanced version with command-line arguments and better error handling
 """
 
 import requests
 import json
 import logging
+import argparse
 from datetime import datetime
 from pathlib import Path
 import PyPDF2
 from PyPDF2 import PdfWriter, PdfReader
 import sys
 import time
+import os
 from typing import List, Dict, Optional
 
 # Configure logging
@@ -34,7 +37,7 @@ class MakkalKuralDownloader:
         self.base_url = "http://epaper.makkalkural.net"
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
         self.logger = setup_logging()
         self.temp_dir = Path("temp_pdfs")
@@ -43,6 +46,14 @@ class MakkalKuralDownloader:
     def get_current_date(self) -> str:
         """Get current date in dd/mm/yyyy format"""
         return datetime.now().strftime("%d/%m/%Y")
+    
+    def validate_date(self, date_str: str) -> bool:
+        """Validate date format"""
+        try:
+            datetime.strptime(date_str, "%d/%m/%Y")
+            return True
+        except ValueError:
+            return False
     
     def get_all_pages(self, date: str) -> List[Dict]:
         """
@@ -129,6 +140,11 @@ class MakkalKuralDownloader:
             response = self.session.get(url, params=params, timeout=60, stream=True)
             response.raise_for_status()
             
+            # Check if response is actually a PDF
+            content_type = response.headers.get('content-type', '').lower()
+            if 'pdf' not in content_type and len(response.content) < 1000:
+                self.logger.warning(f"Page {page_num} might not be a valid PDF")
+            
             # Save to temp directory
             file_path = self.temp_dir / f"page_{page_num:02d}.pdf"
             
@@ -137,8 +153,16 @@ class MakkalKuralDownloader:
                     if chunk:
                         f.write(chunk)
             
-            self.logger.info(f"Successfully downloaded page {page_num}")
-            return file_path
+            # Verify the downloaded file is a valid PDF
+            try:
+                with open(file_path, 'rb') as f:
+                    PdfReader(f)
+                self.logger.info(f"Successfully downloaded and verified page {page_num}")
+                return file_path
+            except Exception as e:
+                self.logger.error(f"Downloaded file for page {page_num} is not a valid PDF: {e}")
+                file_path.unlink(missing_ok=True)
+                return None
             
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Error downloading page {page_num}: {e}")
@@ -164,19 +188,32 @@ class MakkalKuralDownloader:
                     try:
                         with open(pdf_file, 'rb') as f:
                             pdf_reader = PdfReader(f)
+                            page_count = len(pdf_reader.pages)
                             for page in pdf_reader.pages:
                                 pdf_writer.add_page(page)
-                        self.logger.info(f"Added {pdf_file.name} to combined PDF")
+                        self.logger.info(f"Added {pdf_file.name} ({page_count} pages) to combined PDF")
                     except Exception as e:
                         self.logger.error(f"Error processing {pdf_file}: {e}")
                         continue
+            
+            if len(pdf_writer.pages) == 0:
+                self.logger.error("No valid pages to combine")
+                return False
             
             # Write combined PDF
             with open(output_filename, 'wb') as output_file:
                 pdf_writer.write(output_file)
             
-            self.logger.info(f"Successfully created combined PDF: {output_filename}")
-            return True
+            # Verify the combined PDF
+            try:
+                with open(output_filename, 'rb') as f:
+                    reader = PdfReader(f)
+                    total_pages = len(reader.pages)
+                self.logger.info(f"Successfully created combined PDF: {output_filename} ({total_pages} pages)")
+                return True
+            except Exception as e:
+                self.logger.error(f"Combined PDF verification failed: {e}")
+                return False
             
         except Exception as e:
             self.logger.error(f"Error combining PDFs: {e}")
@@ -187,7 +224,8 @@ class MakkalKuralDownloader:
         try:
             for file in self.temp_dir.glob("*.pdf"):
                 file.unlink()
-            self.temp_dir.rmdir()
+            if self.temp_dir.exists():
+                self.temp_dir.rmdir()
             self.logger.info("Cleaned up temporary files")
         except Exception as e:
             self.logger.warning(f"Error cleaning up temp files: {e}")
@@ -204,6 +242,10 @@ class MakkalKuralDownloader:
         """
         if date is None:
             date = self.get_current_date()
+        
+        if not self.validate_date(date):
+            self.logger.error(f"Invalid date format: {date}. Expected dd/mm/yyyy")
+            return False
         
         self.logger.info(f"Starting download for date: {date}")
         
@@ -258,34 +300,40 @@ class MakkalKuralDownloader:
         self.cleanup_temp_files()
         
         if success:
-            self.logger.info(f"Successfully created: {output_filename}")
+            file_size = os.path.getsize(output_filename) / (1024 * 1024)  # MB
+            self.logger.info(f"Successfully created: {output_filename} ({file_size:.2f} MB)")
             return True
         else:
             self.logger.error("Failed to create combined PDF")
             return False
 
 def main():
-    """Main function"""
+    """Main function with command-line argument support"""
+    parser = argparse.ArgumentParser(description='Download Makkal Kural E-Paper')
+    parser.add_argument('--date', '-d', 
+                       help='Date to download in dd/mm/yyyy format (default: today)',
+                       type=str, default=None)
+    
+    args = parser.parse_args()
+    
     downloader = MakkalKuralDownloader()
     
-    # You can specify a custom date here, or use None for current date
-    custom_date = None  # Format: "dd/mm/yyyy" or None for today
-    
     try:
-        success = downloader.download_daily_paper(custom_date)
+        success = downloader.download_daily_paper(args.date)
         if success:
             print("✅ Download completed successfully!")
+            return 0
         else:
             print("❌ Download failed. Check log.txt for details.")
-            sys.exit(1)
+            return 1
     except KeyboardInterrupt:
         print("\n⏹️ Download interrupted by user")
         downloader.cleanup_temp_files()
-        sys.exit(0)
+        return 130
     except Exception as e:
         logging.error(f"Unexpected error: {e}")
         print("❌ An unexpected error occurred. Check log.txt for details.")
-        sys.exit(1)
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
